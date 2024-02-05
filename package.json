@@ -1,4 +1,20 @@
 {
+  "type": "module",
+  "scripts": {
+    "start": "vite dev --port 3001"
+  },
   "name": "typescript-example",
-  "packageManager": "yarn@4.1.0"
+  "packageManager": "yarn@4.1.0",
+  "devDependencies": {
+    "@types/react": "^18.2.54",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
 }
