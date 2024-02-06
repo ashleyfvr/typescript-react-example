@@ -7,13 +7,18 @@ import {
   ChangeEvent,
   Reducer,
 } from "react";
+import styles from "./styles";
 
 const App = () => {
+  // Two sets of state, one for controlled input, one to apply search
+  // useState uses generics and tuples!
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
+      // Ensure the submit event doesn't trigger a page reload and apply
+      // our search terms
       event.preventDefault();
       setName(input);
     },
@@ -26,15 +31,7 @@ const App = () => {
 
   return (
     <form onSubmit={handleSubmit}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          flexDirection: "column",
-          height: "60vh",
-        }}
-      >
+      <div style={styles.root}>
         <p>
           <input
             autoComplete="off"
@@ -45,7 +42,7 @@ const App = () => {
           />
           <button type="submit">Search</button>
         </p>
-        <PokeFinder name={name} />
+        <PokeFinder name={name} onResult={() => setInput("")} />
       </div>
     </form>
   );
@@ -74,6 +71,8 @@ enum Type {
   Shadow = "shadow",
 }
 
+// Keep a record of every type's color for rendering styles later on
+// If the Type enum ever updates, this map will also invalidate
 const TYPE_COLORS: Record<Type, string> = {
   [Type.Normal]: "#A8A77A",
   [Type.Fire]: "#EE8130",
@@ -97,6 +96,7 @@ const TYPE_COLORS: Record<Type, string> = {
   [Type.Shadow]: "#333333",
 };
 
+// Shape definitions can deeply type
 type Pokemon = {
   name: string;
   sprites: {
@@ -110,12 +110,26 @@ type Pokemon = {
   }[];
 };
 
+// React provides typings to help us define our props
 type PokeFinderProps = {
   name: string;
+  onResult: () => void;
 };
-const PokeFinder: React.FC<PokeFinderProps> = ({ name }) => {
+const PokeFinder: React.FC<PokeFinderProps> = ({ name, onResult }) => {
+  // Here we provide our Pokemon type definition into useFetch to let
+  // typescript know what we expect back. This is *risky* as we do not
+  // check the result from the server at runtime. Any changes could break our
+  // application!
   const { error, isLoading, isRefetching, isInitialized, result } =
-    useFetch<Pokemon>(name ? `https://pokeapi.co/api/v2/pokemon/${name}` : "");
+    useFetch<Pokemon>(
+      name ? `https://pokeapi.co/api/v2/pokemon/${name.toLowerCase()}` : ""
+    );
+
+  useEffect(() => {
+    if (result) {
+      onResult();
+    }
+  }, [result]);
 
   if (!isInitialized) {
     return <p>Enter the name of a pokemon to start</p>;
@@ -133,44 +147,39 @@ const PokeFinder: React.FC<PokeFinderProps> = ({ name }) => {
     );
   }
 
+  const RAW_IMAGE_SIZE = 96;
+
+  // result will no longer be | null due to our earlier checks and early returns
   return (
     <>
-      <p>{result.name}</p>
-      <div style={{ position: "relative", width: 400, height: 400 }}>
+      <p style={styles.name}>{result.name}</p>
+      <div style={styles.card}>
         <Background
           left={result.types[0]?.type.name}
           right={result.types[1]?.type.name}
         />
         <img
-          width="400"
-          height="400"
+          width={RAW_IMAGE_SIZE * 4}
+          height={RAW_IMAGE_SIZE * 4}
           src={result.sprites.front_default}
           alt=""
-          style={{
-            display: "block",
-            filter: "drop-shadow(2px 2px 4px #000)",
-          }}
+          style={styles.sprite}
         />
       </div>
-      <ul style={{ listStyle: "none", display: "flex", gap: 6, padding: 6 }}>
+      <ul style={styles.typeList}>
         {result.types.map(({ type }) => (
           <li
             key={type.slot}
             style={{
-              padding: "3px 6px",
-              borderRadius: 3,
+              ...styles.type,
               background: TYPE_COLORS[type.name],
-              textShadow: "1px 1px 2px #000",
-              color: "#FFF",
             }}
           >
             {type.name}
           </li>
         ))}
       </ul>
-      {isRefetching && (
-        <p style={{ height: 0, margin: 0 }}>Updating Results...</p>
-      )}
+      {isRefetching && <p style={styles.loader}>Updating Results...</p>}
     </>
   );
 };
@@ -209,6 +218,15 @@ type FetchResult<T> =
   | LoadingResult
   | SuccessResult<T>;
 
+// What happens if we use this definition instead? It's much simpler!
+// type FetchResult<T> = {
+//   isInitialized: boolean;
+//   error: Error | null;
+//   isLoading: boolean;
+//   isRefetching: boolean;
+//   result: T | null;
+// };
+
 type ErrorAction = { type: "error"; error: string };
 type StartAction = { type: "start" };
 type SuccessAction<T> = { type: "success"; result: T };
@@ -244,6 +262,7 @@ function useFetch<T>(url: string): FetchResult<T> {
               result: null,
             };
           }
+        // Why not just use a ternary rather than duplicating code above?
         // return {
         //   error: null,
         //   isInitialized: true,
@@ -276,6 +295,7 @@ function useFetch<T>(url: string): FetchResult<T> {
     }
 
     try {
+      // Do some basic checking that the provided URL is valid
       new URL(url);
     } catch (e) {
       dispatch({ type: "error", error: "Invalid URL provided" });
@@ -292,9 +312,12 @@ function useFetch<T>(url: string): FetchResult<T> {
         const response = await fetch(url, {
           signal: abort.signal,
         });
+        // There are better, cleaner ways to handle cancelling, but we'll
+        // brute force it for now
         if (cancelled) {
           return;
         }
+
         if (!response.ok) {
           dispatch({ type: "error", error: `api returned ${response.status}` });
           return;
@@ -302,6 +325,7 @@ function useFetch<T>(url: string): FetchResult<T> {
 
         dispatch({ type: "success", result: (await response.json()) as T });
       } catch (e) {
+        // If we cancelled, we likely received an Abort error and can ignore
         if (cancelled) {
           return;
         }
@@ -314,6 +338,9 @@ function useFetch<T>(url: string): FetchResult<T> {
       }
     }
 
+    // void prefix here is out of habit from my own eslint rules
+    // it shows that you're conscious you're generating a promise but aren't
+    // looking to await or then() it.
     void performFetch();
 
     return () => {
@@ -327,6 +354,8 @@ function useFetch<T>(url: string): FetchResult<T> {
 
 export default App;
 
+// Not really related to Typescript. Just wanted to make a cool-ish background
+// for the pokemon types
 type BackgroundProps = {
   left: Type | undefined;
   right: Type | undefined;
@@ -334,38 +363,17 @@ type BackgroundProps = {
 const Background: React.FC<BackgroundProps> = ({ left, right }) => {
   const r = right || left;
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        height: "100%",
-        width: "100%",
-        zIndex: "-1",
-        overflow: "hidden",
-        borderRadius: 3,
-      }}
-    >
+    <div style={styles.background}>
       <div
         style={{
-          position: "absolute",
-          top: "0",
-          left: "0",
-          height: "141.7%",
-          width: "141.7%",
+          ...styles.backgroundLeft,
           background: left ? TYPE_COLORS[left] : "transparent",
-          transform: "translate(-50%, -50%) rotate(45deg)",
         }}
       />
       <div
         style={{
-          position: "absolute",
-          top: "100%",
-          left: "100%",
-          height: "141.7%",
-          width: "141.7%",
+          ...styles.backgroundRight,
           background: r ? TYPE_COLORS[r] : "transparent",
-          transform: "translate(-50%, -50%) rotate(45deg)",
         }}
       />
     </div>
